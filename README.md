@@ -29,3 +29,4 @@ From reading the source code:
 * Host renaming uses the `rrdcached.sock` to determine whether the `daemon` is running.
 * `cmk-create-rrd` is responsible for creating rrds (but unclear how it is called)
 * `cmk-convert-rrds` can convert RRDs from nagios format to Checkmk format.
+* `diskspace` and `omd cp` directly delete/copy files.
