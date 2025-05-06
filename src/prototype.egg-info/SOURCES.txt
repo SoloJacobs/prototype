@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-src/forward.py
-src/prototype.egg-info/PKG-INFO
-src/prototype.egg-info/SOURCES.txt
-src/prototype.egg-info/dependency_links.txt
-src/prototype.egg-info/entry_points.txt
-src/prototype.egg-info/requires.txt
-src/prototype.egg-info/top_level.txt
