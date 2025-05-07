@@ -30,3 +30,18 @@ From reading the source code:
 * `cmk-create-rrd` is responsible for creating rrds (but unclear how it is called)
 * `cmk-convert-rrds` can convert RRDs from nagios format to Checkmk format.
 * `diskspace` and `omd cp` directly delete/copy files.
+
+## How does Nagios use the RRDs?
+
+Nagios has a plug-in interface known as 'Nagios Event Broker (NEB)'.
+These plug-ins are configured via `/omd/sites/{site}/tmp/nagios/nagios.cfg`
+
+```
+broker_module=/omd/sites/heute/lib/mk-livestatus/livestatus.o num_client_threads=20 crash_reports_path=/omd/sites/heute/var/check_mk/crashes license_usage_history_path=/omd/sites/heute/var/check_mk/licensing/history.json mk_inventory_path=/omd/sites/heute/var/check_mk/inventory robotmk_html_log_path=/omd/sites/heute/var/robotmk/html_logs mk_logwatch_path=/omd/sites/heute/var/check_mk/logwatch prediction_path=/omd/sites/heute/var/check_mk/prediction state_file_created_file=/omd/sites/heute/var/check_mk/licensing/state_file_created licensed_state_file=/omd/sites/heute/var/check_mk/licensing/licensed_state pnp_path=/omd/sites/heute/var/pnp4nagios/perfdata edition=enterprise /omd/sites/heute/tmp/run/live
+broker_module=/omd/sites/heute/lib/npcdmod.o config_file=/omd/sites/heute/etc/pnp4nagios/npcd.cfg
+```
+
+`livestatus.o` lives in `packages/neb`, which uses `packages/livestatus` to read the RRDs.
+pnp4nagios is an addon to NagiosCore which analyzes performance data provided by plugins and stores them automatically into RRD-databases.
+
+To have a drop-in replacement for RRDs, both componentes would need to replaced.
