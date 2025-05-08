@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import socket
 import subprocess
+import sys
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,39 +104,41 @@ def get_process_info(pid: int) -> dict[str, object]:
 
 
 def _handle_connection(
-    target: Path, console: Console, conn: socket.socket, addr: socket.AddressInfo
+    original: Path,
+    console: Console,
+    conn: socket.socket,
+    addr: socket.AddressInfo,
 ) -> None:
     console.log(f"Accepted connection {addr}")
-    procs = parse_proc_net_unix()
-    lsof_procs = parse_lsof_unix(target)
-    for proc in procs:
-        if proc.get("path") == str(target):
-            console.log(f"{proc}")
-            for entry in lsof_procs:
-                if entry.get("node") == proc["inode"]:
-                    console.log(str(entry))
-                    console.log(str(get_process_info(int(entry["pid"]))))
-
-    while True:
-        data = conn.recv(1024)
-        if data:
-            console.log(f"Received {data!r}")
-        else:
-            return
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as orginal_sock:
+        orginal_sock.connect(str(original))
+        while True:
+            data = conn.recv(1024)
+            if data:
+                orginal_sock.sendall(data)
+            else:
+                return
+            origin_data = orginal_sock.recv(1024)
+            if origin_data:
+                conn.sendall(origin_data)
+            else:
+                sys.exit(1)
 
 
 def main() -> None:
     config = parse_args()
     console = Console()
+    original = config.target.with_suffix(".original")
+    config.target.rename(original)
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.bind(str(config.target))
             sock.listen()
             while True:
                 conn, addr = sock.accept()
-                _handle_connection(config.target, console, conn, addr)
+                _handle_connection(original, console, conn, addr)
     finally:
-        config.target.unlink()
+        original.rename(config.target)
 
 
 if __name__ == "__main__":
