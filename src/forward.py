@@ -24,11 +24,12 @@ def parse_args() -> Config:
 
 
 class Console:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, verbose: bool) -> None:
+        self._verbose = verbose
 
     def log(self, message: str) -> None:
-        print(message)
+        if self._verbose:
+            print(message)
 
 
 def _handle_connection(
@@ -55,7 +56,7 @@ def _handle_connection(
 
 def main() -> None:
     config = parse_args()
-    console = Console()
+    console = Console(True)
     original = config.target.with_suffix(".original")
     config.target.rename(original)
     try:
