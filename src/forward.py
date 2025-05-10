@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import select
 import socket
 import sys
 from argparse import ArgumentParser
@@ -33,25 +34,35 @@ class Console:
 
 
 def _handle_connection(
-    original: Path,
     console: Console,
+    original_sock: socket.socket,
     conn: socket.socket,
-    addr: socket.AddressInfo,
 ) -> None:
-    console.log(f"Accepted connection {addr}")
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as orginal_sock:
-        orginal_sock.connect(str(original))
-        while True:
-            data = conn.recv(1024)
-            if data:
-                orginal_sock.sendall(data)
+    while True:
+        console.log("select")
+        readable, _, exceptional = select.select(
+            [conn, original_sock], [], [conn, original_sock]
+        )
+        conn.setblocking(False)
+        for sock in readable:
+            console.log("recv: " + "rrdcached" if sock == conn else "cmc")
+            data = sock.recv(1024)
+            if sock == conn:
+                console.log(f">> {data.decode('ascii')}")
+                if data:
+                    original_sock.send(data)
+                else:
+                    return
             else:
-                return
-            origin_data = orginal_sock.recv(1024)
-            if origin_data:
-                conn.sendall(origin_data)
-            else:
-                sys.exit(1)
+                console.log(f"<< {data!r}")
+                if data:
+                    try:
+                        conn.send(data)
+                    except BrokenPipeError:
+                        conn.close()
+                        return
+                else:
+                    sys.exit(1)
 
 
 def main() -> None:
@@ -60,12 +71,15 @@ def main() -> None:
     original = config.target.with_suffix(".original")
     config.target.rename(original)
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.bind(str(config.target))
-            sock.listen()
-            while True:
-                conn, addr = sock.accept()
-                _handle_connection(original, console, conn, addr)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as orginal_sock:
+            orginal_sock.connect(str(original))
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.bind(str(config.target))
+                sock.listen()
+                while True:
+                    conn, addr = sock.accept()
+                    console.log(f"accepted connection {addr}")
+                    _handle_connection(console, orginal_sock, conn)
     finally:
         original.rename(config.target)
 
