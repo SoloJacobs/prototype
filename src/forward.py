@@ -2,8 +2,8 @@
 import json
 import select
 import socket
-import struct
 import sys
+import time
 from argparse import ArgumentParser
 from base64 import b64encode
 from dataclasses import dataclass
@@ -36,16 +36,7 @@ class Console:
             print(message)
 
 
-def _encode(message: bytes) -> str | list[float]:
-    try:
-        return message.decode("ascii")
-    except:
-        pass
-    try:
-        chunks = [message[i : i + 8] for i in range(0, len(message), 8)]
-        return [struct.unpack("d", chunk)[0] for chunk in chunks]
-    except:
-        pass
+def _serialize(message: bytes) -> str | list[float]:
     return b64encode(message).decode("ascii")
 
 
@@ -58,38 +49,28 @@ def _get_complete_message(data: bytes) -> tuple[list[bytes], bytes]:
 
 
 class DataLog:
-    def __init__(self, id_: str) -> None:
-        self._current_recv = b""
-        self._current_send = b""
+    def __init__(self, id_: str, path: Path) -> None:
         self._id = id_
+        self._file = path.open("a")
 
     def log_send(self, data: bytes) -> None:
-        self._current_send += data
-        messages, self._current_send = _get_complete_message(self._current_send)
-        for message in messages:
-            print(
-                json.dumps(
-                    {
-                        "id": self._id,
-                        "type_": "send",
-                        "message": _encode(message),
-                    }
-                )
-            )
+        self._log("send", data)
 
     def log_recv(self, data: bytes) -> None:
-        self._current_recv += data
-        messages, self._current_recv = _get_complete_message(self._current_recv)
-        for message in messages:
-            print(
-                json.dumps(
-                    {
-                        "id": self._id,
-                        "type_": "recv",
-                        "message": _encode(message),
-                    }
-                )
+        self._log("recv", data)
+
+    def _log(self, type_: str, data: bytes) -> None:
+        self._file.write(
+            json.dumps(
+                {
+                    "id": self._id,
+                    "type_": type_,
+                    "message": _serialize(data),
+                    "time": time.time(),
+                }
             )
+            + "\n"
+        )
 
 
 def _handle_connection(
@@ -106,7 +87,7 @@ def _handle_connection(
         conn.setblocking(False)
         for sock in readable:
             console.log("recv: " + ("rrdcached" if sock == conn else "cmc"))
-            data = sock.recv(1024)
+            data = sock.recv(2 * 32)
             if sock == conn:
                 console.log(f">> {data.decode('ascii')}")
                 data_log.log_send(data)
@@ -142,7 +123,12 @@ def main() -> None:
                 while True:
                     conn, addr = sock.accept()
                     console.log(f"accepted connection {addr}")
-                    _handle_connection(DataLog(str(i)), console, orginal_sock, conn)
+                    _handle_connection(
+                        DataLog(str(i), Path("datalog.jsonl")),
+                        console,
+                        orginal_sock,
+                        conn,
+                    )
                     i += 1
     finally:
         original.rename(config.target)
