@@ -8,6 +8,7 @@ dependencies = ["psutil>=7.0.0"]
 
 [project.scripts]
 forward = "forward:main"
+send-command = "send_command:main"
 
 [tool.uv]
 package = true
