@@ -10,6 +10,7 @@ COMMANDS = [
     b"FETCH /tmp/Check_MK.rrd AVERAGE\n",
     b"FETCHBIN /tmp/Check_MK.rrd AVERAGE\n",
     b"FETCH /opt/omd/sites/v240/var/check_mk/rrd/server-linux-ipmi-4/Filesystem__home.rrd MAX 1746889885 1746904285 4\n",
+    b"FLUSHALL\n",
 ]
 
 
