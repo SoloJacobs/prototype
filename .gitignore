@@ -1,2 +1,6 @@
 *.pyc
 *.egg-info
+journal/*
+rrdcached.pid
+rrdcached.log
+rrdcached
