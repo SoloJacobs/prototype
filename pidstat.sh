@@ -2,10 +2,11 @@
 
 GROUP_OWNER=solo
 
-pidstat --human -T ALL -du -e ./rrdcached -g -t 4 -w 2 -z 1 -f 4 -U solo -s "$GROUP_OWNER" -m 660 \
+date +%s
+sudo pidstat --human -T ALL -du -e ./rrdcached -g -t 4 -w 2 -z 1 -f 4 -U solo -s "$GROUP_OWNER" -m 660 \
   -l unix:rrdcached.sock \
   -p rrdcached.pid \
   -j journal \
   -V LOG_DEBUG \
   -o rrdcached.log
-
+date +%s

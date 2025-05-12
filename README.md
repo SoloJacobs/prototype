@@ -45,3 +45,32 @@ broker_module=/omd/sites/heute/lib/npcdmod.o config_file=/omd/sites/heute/etc/pn
 pnp4nagios is an addon to NagiosCore which analyzes performance data provided by plugins and stores them automatically into RRD-databases.
 
 To have a drop-in replacement for RRDs, both componentes would need to replaced.
+
+## Benchmarks
+
+After copying `rrdcached`, we run each of the following commands in a separate shell
+```sh
+./invoke.sh
+forward replay --target rrdcached.sock --log working/update_datalog.jsonl
+kill $(cat rrdcached.pid )
+```
+Note, that one should wait with killing the `rrdcached` daemon until it has flushed the data.
+The resulting `massif` file can be read as follows:
+```sh
+massif-visualizer massif.out.208928
+```
+Here, the `update_datalog.jsonl` file was created by collecting by running:
+```sh
+forward record --target rrdcached.sock
+```
+in a 2.4 site with three hosts for one hour. There are a total of 7786 updates in the log.
+All a similar test can be done by replacing `invoke.sh` with `pidstat.sh`.
+The output is available in `pidstat.output`.
+
+
+### Limitations
+
+* the `forward` command does not yet implement multiplexing correctly. This means only *either* the `UPDATE` or the `FETCHBIN` commands are tracked.
+* the RRD files are created via `cmc --keep-alive`, and not via `rrdcached`. This mean none of I/O at creation time of the RRDs is benchmarked.
+* without read/write access to the original RRDs, `forward replay` does not work correctly.
+* we don't have any benchmarks, which distinguish sequential/randomized I/O.
