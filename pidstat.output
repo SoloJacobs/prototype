@@ -1,7 +1,8 @@
-1747046122
+1747046552
+[sudo] password for solo: 
 Linux 6.8.0-59-generic (klapp-0134) 	12/05/25 	_x86_64_	(8 CPU)
 rrdcached: can't create pid file 'rrdcached.pid' (File exists)
-rrdcached: removed stale PID file (no rrdcached on pid 288888)
+rrdcached: removed stale PID file (no rrdcached on pid 289973)
 rrdcached: starting normally.
 starting up
 setuid(1000) succeeded
@@ -10,32 +11,52 @@ replaying from journal: /home/solo/git/prototype/journal/rrd.journal.1747046082.
 Replayed 0 entries (0 failures)
 replaying from journal: /home/solo/git/prototype/journal/rrd.journal.1747046086.815715
 Replayed 0 entries (0 failures)
-started new journal /home/solo/git/prototype/journal/rrd.journal.1747046122.278609
+replaying from journal: /home/solo/git/prototype/journal/rrd.journal.1747046122.278609
+Replayed 0 entries (0 failures)
+replaying from journal: /home/solo/git/prototype/journal/rrd.journal.1747046126.279297
+Replayed 0 entries (0 failures)
+started new journal /home/solo/git/prototype/journal/rrd.journal.1747046555.962797
 journal processing complete
 listening for connections
-signal_receiver: Signal 28 was received from process 0.
-
 flushing old values
 rotating journals
-started new journal /home/solo/git/prototype/journal/rrd.journal.1747046126.279297
-^Ccaught SIGINT
+started new journal /home/solo/git/prototype/journal/rrd.journal.1747046559.963478
+flushing old values
+rotating journals
+started new journal /home/solo/git/prototype/journal/rrd.journal.1747046563.963066
+removing old journal /home/solo/git/prototype/journal/rrd.journal.1747046082.815843
+removing old journal /home/solo/git/prototype/journal/rrd.journal.1747046086.815715
+removing old journal /home/solo/git/prototype/journal/rrd.journal.1747046122.278609
+removing old journal /home/solo/git/prototype/journal/rrd.journal.1747046126.279297
+removing old journal /home/solo/git/prototype/journal/rrd.journal.1747046555.962797
+flushing old values
+rotating journals
+started new journal /home/solo/git/prototype/journal/rrd.journal.1747046567.963409
+removing old journal /home/solo/git/prototype/journal/rrd.journal.1747046559.963478
+flushing old values
+rotating journals
+started new journal /home/solo/git/prototype/journal/rrd.journal.1747046571.963369
+removing old journal /home/solo/git/prototype/journal/rrd.journal.1747046563.963066
+caught SIGTERM
+starting shutdown
+expedited shutdown; journals will be used at next startup
+goodbye
 
-12:35:22      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
-12:35:27     1000    289973    0.0%    0.0%    0.0%    0.0%    0.0%     6  rrdcached
+12:42:35      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+12:42:56     1000    297560    0.1%    0.2%    0.0%    0.0%    0.3%     5  rrdcached
 
-12:35:22      UID       PID    usr-ms system-ms  guest-ms  Command
-12:35:27     1000    289973         0         0         0  rrdcached
+12:42:35      UID       PID    usr-ms system-ms  guest-ms  Command
+12:42:56     1000    297560        20        50         0  rrdcached
 
-12:35:22      UID       PID   kB_rd/s   kB_wr/s kB_ccwr/s iodelay  Command
-12:35:27     1000    289973      0.0B      1.7k      0.0B       0  rrdcached
+12:42:35      UID       PID   kB_rd/s   kB_wr/s kB_ccwr/s iodelay  Command
+12:42:56     1000    297560      0.0B     46.8k      7.5k       0  rrdcached
 
 Average:      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
-Average:     1000    289973    0.0%    0.0%    0.0%    0.0%    0.0%     -  rrdcached
+Average:     1000    297560    0.1%    0.2%    0.0%    0.0%    0.3%     -  rrdcached
 
 Average:      UID       PID    usr-ms system-ms  guest-ms  Command
-Average:     1000    289973         0         0         0  rrdcached
+Average:     1000    297560        20        50         0  rrdcached
 
 Average:      UID       PID   kB_rd/s   kB_wr/s kB_ccwr/s iodelay  Command
-Average:     1000    289973      0.0B      1.7k      0.0B       0  rrdcached
-1747046127
-
+Average:     1000    297560      0.0B     46.8k      7.5k       0  rrdcached
+1747046576
