@@ -18,6 +18,7 @@ class Record:
 @dataclass(frozen=True)
 class Replay:
     target: Path
+    log: Path
 
 @dataclass(frozen=True)
 class Decipher:
@@ -40,6 +41,12 @@ def parse_args() -> Record | Replay | Decipher:
         required=True,
         help="rrdcached.sock",
     )
+    replay.add_argument(
+        "--log",
+        type=Path,
+        default='datalog.jsonl',
+        help="datalog.jsonl",
+    )
     decipher = command_parser.add_parser("decipher")
     decipher.add_argument(
         "--log",
@@ -52,7 +59,7 @@ def parse_args() -> Record | Replay | Decipher:
         case "record":
             return Record(target=namespace.target)
         case "replay":
-            return Replay(target=namespace.target)
+            return Replay(target=namespace.target, log=namespace.log)
         case "decipher":
             return Decipher(log=namespace.log)
     raise NotImplementedError()
@@ -185,7 +192,7 @@ def record(console: Console, config: Record) -> None:
 
 def replay(console: Console, config: Replay) -> None:
     with (
-        open("datalog.jsonl") as file,
+        config.log.open() as file,
         socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock,
     ):
         sock.connect(str(config.target))
@@ -199,7 +206,12 @@ def replay(console: Console, config: Replay) -> None:
                     sock.sendall(message)
                 case "recv":
                     data = sock.recv(2**32)
+                    try:
+                        readable = message.decode('ascii')
+                    except:
+                        readable = "<unreadable>"
                     console.log(f"<< count: {len(data)}")
+                    console.log(f"<< {readable[:1000]}")
 
 
 def main() -> None:
