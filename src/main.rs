@@ -7,7 +7,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, debug, trace};
+use tracing::{info, debug, trace, error};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -49,8 +49,10 @@ impl Rename {
 
 impl Drop for Rename {
     fn drop(&mut self) {
-        let _ = fs::rename(&self.to, &self.from);
-        info!("reset socket");
+        match fs::rename(&self.to, &self.from) {
+            Ok(()) => info!("reset socket"),
+            Err(e) => error!("could not reset socket: {e:?}"),
+        }
     }
 }
 
@@ -157,8 +159,10 @@ async fn forward_traffic(
         };
     }
     debug!("closing connection {id}");
-    let _: (Result<_, _>, Result<_, _>) =
+    let (shutdown_from, shutdown_to) =
         tokio::join!(from_stream.shutdown(), to_stream.shutdown());
+    shutdown_to.map_err(|e| error!("to {e:?}")).ok();
+    shutdown_from.map_err(|e| error!("from {e:?}")).ok();
 }
 
 #[tokio::main]
