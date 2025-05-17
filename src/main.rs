@@ -6,8 +6,9 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
-use tracing::info;
-use tracing_subscriber;
+use tracing::{info, trace};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{EnvFilter, fmt};
 
 #[derive(Parser, Debug)]
 struct Arguments {
@@ -116,7 +117,7 @@ async fn serve(token: CancellationToken, from: &Path, to: &Path) {
 }
 
 async fn forward_traffic(
-    count: usize,
+    id: usize,
     token: CancellationToken,
     mut from_stream: UnixStream,
     mut to_stream: UnixStream,
@@ -127,6 +128,7 @@ async fn forward_traffic(
         tokio::select! {
             from_read = from_stream.read(&mut from_buf) => {
                 let n = from_read.unwrap();
+                    trace!(type_="recv", message=&from_buf[..n]);
                     tokio::select! {
                         write = to_stream.write_all(&from_buf[..n]) => write.unwrap(),
                         _ = token.cancelled() => break,
@@ -137,6 +139,7 @@ async fn forward_traffic(
                 },
             to_read = to_stream.read(&mut to_buf) => {
                 let n = to_read.unwrap();
+                    trace!(type_="send", message=&to_buf[..n]);
                     tokio::select! {
                         write = from_stream.write_all(&to_buf[..n]) => write.unwrap(),
                         _ = token.cancelled() => break,
@@ -148,16 +151,26 @@ async fn forward_traffic(
             _ = token.cancelled() => break,
         };
     }
-    info!("closing connection {count}");
+    info!("closing connection {id}");
     let _: (Result<_, _>, Result<_, _>) =
         tokio::join!(from_stream.shutdown(), to_stream.shutdown());
 }
 
 #[tokio::main]
-async fn record_main(_output: &Path, socket: &Path) {
-    tracing_subscriber::fmt()
-        .with_env_filter("debug")
+async fn record_main(output: &Path, socket: &Path) {
+    let stdout_layer = fmt::Layer::default()
         .compact()
+        .with_filter(EnvFilter::new("trace"));
+    let file = fs::File::create(output).unwrap();
+    let json_layer = fmt::Layer::default()
+        .json()
+        .with_writer(file)
+        .with_level(false)
+        .with_target(false)
+        .with_filter(EnvFilter::new("spy[{type_}]"));
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(json_layer)
         .init();
     let token = CancellationToken::new();
     let handle = setup_signal_handler(token.clone()).await;
