@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+use base64::prelude::*;
+use clap::{ArgAction, Parser, Subcommand};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -6,7 +7,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, trace};
+use tracing::{info, debug, trace};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -14,6 +15,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 struct Arguments {
     #[clap(subcommand)]
     command: Command,
+    #[arg(short, long, global = true, action = ArgAction::Count)]
+    verbose: u8,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -74,7 +77,7 @@ async fn setup_signal_handler(token: CancellationToken) -> JoinHandle<()> {
         info!("signal received");
         token.cancel()
     });
-    info!("signal handler setup complete");
+    debug!("signal handler setup complete");
     return handle;
 }
 
@@ -103,7 +106,7 @@ async fn serve(token: CancellationToken, from: &Path, to: &Path) {
             _ = token.cancelled() => break,
         };
         count += 1;
-        info!("accepted connection {:?}, {count}", addr);
+        debug!("accepted connection {:?}, {count}", addr);
         set.spawn(forward_traffic(
             count,
             token.clone(),
@@ -128,7 +131,8 @@ async fn forward_traffic(
         tokio::select! {
             from_read = from_stream.read(&mut from_buf) => {
                 let n = from_read.unwrap();
-                    trace!(type_="recv", message=&from_buf[..n]);
+                    let message: &str = &BASE64_STANDARD.encode(&from_buf[..n]);
+                    trace!(type_="recv", id=id, message=message);
                     tokio::select! {
                         write = to_stream.write_all(&from_buf[..n]) => write.unwrap(),
                         _ = token.cancelled() => break,
@@ -139,7 +143,8 @@ async fn forward_traffic(
                 },
             to_read = to_stream.read(&mut to_buf) => {
                 let n = to_read.unwrap();
-                    trace!(type_="send", message=&to_buf[..n]);
+                    let message: &str = &BASE64_STANDARD.encode(&to_buf[..n]);
+                    trace!(type_="send", id=id, message=message);
                     tokio::select! {
                         write = from_stream.write_all(&to_buf[..n]) => write.unwrap(),
                         _ = token.cancelled() => break,
@@ -151,16 +156,21 @@ async fn forward_traffic(
             _ = token.cancelled() => break,
         };
     }
-    info!("closing connection {id}");
+    debug!("closing connection {id}");
     let _: (Result<_, _>, Result<_, _>) =
         tokio::join!(from_stream.shutdown(), to_stream.shutdown());
 }
 
 #[tokio::main]
-async fn record_main(output: &Path, socket: &Path) {
+async fn record_main(verbose: u8, output: &Path, socket: &Path) {
+    let level = match verbose {
+        0 => "info",
+        1 => "debug",
+        _ => "trace",
+    };
     let stdout_layer = fmt::Layer::default()
         .compact()
-        .with_filter(EnvFilter::new("trace"));
+        .with_filter(EnvFilter::new(level));
     let file = fs::File::create(output).unwrap();
     let json_layer = fmt::Layer::default()
         .json()
@@ -186,7 +196,7 @@ fn replay_main(input: &Path, socket: &Path) {
 fn main() {
     let arguments = Arguments::parse();
     match arguments.command {
-        Command::Record { output, socket } => record_main(&output, &socket),
+        Command::Record { output, socket } => record_main(arguments.verbose, &output, &socket),
         Command::Replay { input, socket } => replay_main(&input, &socket),
     };
 }
