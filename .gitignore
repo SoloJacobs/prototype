@@ -4,3 +4,8 @@ journal/*
 rrdcached.pid
 rrdcached.log
 rrdcached
+
+
+# Added by cargo
+
+/target
