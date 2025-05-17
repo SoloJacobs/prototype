@@ -1,8 +1,10 @@
 use clap::{Parser, Subcommand};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber;
@@ -85,19 +87,82 @@ fn move_socket(socket: &Path) -> Rename {
     Rename::new(socket.into(), original)
 }
 
+async fn serve(token: CancellationToken, from: &Path, to: &Path) {
+    let mut set = JoinSet::new();
+    let mut count = 0usize;
+    let listener = UnixListener::bind(from).unwrap();
+    info!("listening to {}", from.as_os_str().to_string_lossy());
+    loop {
+        let to_stream = tokio::select! {
+            to_stream = UnixStream::connect(to) => to_stream.unwrap(),
+            _ = token.cancelled() => break,
+        };
+        let (from_stream, addr) = tokio::select! {
+            from_stream = listener.accept() => from_stream.unwrap(),
+            _ = token.cancelled() => break,
+        };
+        count += 1;
+        info!("accepted connection {:?}, {count}", addr);
+        set.spawn(forward_traffic(
+            count,
+            token.clone(),
+            from_stream,
+            to_stream,
+        ));
+    }
+    info!("awaiting connections");
+    set.join_all().await;
+    info!("all connections closed");
+}
+
+async fn forward_traffic(
+    count: usize,
+    token: CancellationToken,
+    mut from_stream: UnixStream,
+    mut to_stream: UnixStream,
+) {
+    while !token.is_cancelled() {
+        let mut from_buf = [0u8; 1024];
+        let mut to_buf = [0u8; 1024];
+        tokio::select! {
+            from_read = from_stream.read(&mut from_buf) => {
+                let n = from_read.unwrap();
+                    tokio::select! {
+                        write = to_stream.write_all(&from_buf[..n]) => write.unwrap(),
+                        _ = token.cancelled() => break,
+                    };
+                    if n == 0 {
+                        break;
+                    };
+                },
+            to_read = to_stream.read(&mut to_buf) => {
+                let n = to_read.unwrap();
+                    tokio::select! {
+                        write = from_stream.write_all(&to_buf[..n]) => write.unwrap(),
+                        _ = token.cancelled() => break,
+                    }
+                    if n == 0 {
+                        break;
+                    };
+                },
+            _ = token.cancelled() => break,
+        };
+    }
+    info!("closing connection {count}");
+    let _: (Result<_, _>, Result<_, _>) =
+        tokio::join!(from_stream.shutdown(), to_stream.shutdown());
+}
+
 #[tokio::main]
 async fn record_main(_output: &Path, socket: &Path) {
-    let _subscriber = tracing_subscriber::fmt()
+    tracing_subscriber::fmt()
         .with_env_filter("debug")
         .compact()
         .init();
     let token = CancellationToken::new();
     let handle = setup_signal_handler(token.clone()).await;
     let rename = move_socket(socket);
-    tokio::select! {
-        _ = handle => (),
-        _ = token.cancelled() => (),
-    };
+    let _ = tokio::join!(handle, serve(token, &rename.from, &rename.to));
     drop(rename)
 }
 
