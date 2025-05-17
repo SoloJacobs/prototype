@@ -4,7 +4,8 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
+clap = { version = "4.5.38", features = ["derive"] }
 
 [[bin]]
-name = "trak"
+name = "tak"
 path = "src/main.rs"
