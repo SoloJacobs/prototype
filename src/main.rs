@@ -1,6 +1,10 @@
 use base64::prelude::*;
 use clap::{ArgAction, Parser, Subcommand};
+use serde::Deserialize;
+use serde_json::{from_str, to_string};
 use std::fs;
+use std::io::BufRead;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -56,6 +60,26 @@ impl Drop for Rename {
     }
 }
 
+#[derive(Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Type_ {
+    Send,
+    Recv,
+}
+
+#[derive(Deserialize)]
+struct Fields {
+    type_: Type_,
+    id: u64,
+    message: String,
+}
+
+#[derive(Deserialize)]
+struct Log {
+    timestamp: String,
+    fields: Fields,
+}
+
 async fn setup_signal_handler(token: CancellationToken) -> JoinHandle<()> {
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
@@ -95,7 +119,7 @@ fn move_socket(socket: &Path) -> Rename {
 
 async fn serve(token: CancellationToken, from: &Path, to: &Path) {
     let mut set = JoinSet::new();
-    let mut count = 0usize;
+    let mut count = 0u64;
     let listener = UnixListener::bind(from).unwrap();
     info!("listening to {}", from.as_os_str().to_string_lossy());
     loop {
@@ -122,7 +146,7 @@ async fn serve(token: CancellationToken, from: &Path, to: &Path) {
 }
 
 async fn forward_traffic(
-    id: usize,
+    id: u64,
     token: CancellationToken,
     mut from_stream: UnixStream,
     mut to_stream: UnixStream,
@@ -134,7 +158,7 @@ async fn forward_traffic(
             from_read = from_stream.read(&mut from_buf) => {
                 let n = from_read.unwrap();
                     let message: &str = &BASE64_STANDARD.encode(&from_buf[..n]);
-                    trace!(type_="recv", id=id, message=message);
+                    trace!(type_="send", id=id, message=message);
                     tokio::select! {
                         write = to_stream.write_all(&from_buf[..n]) => write.unwrap(),
                         _ = token.cancelled() => break,
@@ -146,7 +170,7 @@ async fn forward_traffic(
             to_read = to_stream.read(&mut to_buf) => {
                 let n = to_read.unwrap();
                     let message: &str = &BASE64_STANDARD.encode(&to_buf[..n]);
-                    trace!(type_="send", id=id, message=message);
+                    trace!(type_="recv", id=id, message=message);
                     tokio::select! {
                         write = from_stream.write_all(&to_buf[..n]) => write.unwrap(),
                         _ = token.cancelled() => break,
@@ -167,15 +191,8 @@ async fn forward_traffic(
 }
 
 #[tokio::main]
-async fn record_main(verbose: u8, output: &Path, socket: &Path) {
-    let level = match verbose {
-        0 => "info",
-        1 => "debug",
-        _ => "trace",
-    };
-    let stdout_layer = fmt::Layer::default()
-        .compact()
-        .with_filter(EnvFilter::new(level));
+async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path) {
+    let stdout_layer = fmt::Layer::default().compact().with_filter(stdout_filter);
     let file = fs::File::create(output).unwrap();
     let json_layer = fmt::Layer::default()
         .json()
@@ -194,14 +211,42 @@ async fn record_main(verbose: u8, output: &Path, socket: &Path) {
     drop(rename)
 }
 
-fn replay_main(input: &Path, socket: &Path) {
-    println!("input: {input:?}, socket: {socket:?}");
+#[tokio::main]
+async fn replay_main(stdout_filter: EnvFilter, input: &Path, socket: &Path) {
+    let stdout_layer = fmt::Layer::default().compact().with_filter(stdout_filter);
+    tracing_subscriber::registry().with(stdout_layer).init();
+    let file = fs::File::open(input).unwrap();
+    let mut stream = UnixStream::connect(socket).await.unwrap();
+    info!("connected to {}", &socket.to_string_lossy());
+    let mut buf = [0u8; 1024];
+    for (line, line_count) in BufReader::new(file).lines().zip(0..) {
+        let log: Log = from_str(&line.unwrap()).unwrap();
+        debug!(
+            "{line_count}, {}, {}",
+            &log.timestamp,
+            &to_string(&log.fields.type_).unwrap()
+        );
+        match log.fields.type_ {
+            Type_::Send => {
+                let bytes = BASE64_STANDARD.decode(&log.fields.message).unwrap();
+                stream.write_all(&bytes).await.unwrap();
+            }
+            Type_::Recv => {
+                stream.read(&mut buf).await.unwrap();
+            }
+        };
+    }
 }
 
 fn main() {
     let arguments = Arguments::parse();
+    let filter = EnvFilter::new(match arguments.verbose {
+        0 => "info",
+        1 => "debug",
+        _ => "trace",
+    });
     match arguments.command {
-        Command::Record { output, socket } => record_main(arguments.verbose, &output, &socket),
-        Command::Replay { input, socket } => replay_main(&input, &socket),
+        Command::Record { output, socket } => record_main(filter, &output, &socket),
+        Command::Replay { input, socket } => replay_main(filter, &input, &socket),
     };
 }
