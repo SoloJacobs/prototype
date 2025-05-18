@@ -7,7 +7,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, debug, trace, error};
+use tracing::{debug, error, info, trace};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -108,7 +108,7 @@ async fn serve(token: CancellationToken, from: &Path, to: &Path) {
             _ = token.cancelled() => break,
         };
         count += 1;
-        debug!("accepted connection {:?}, {count}", addr);
+        debug!(id = count, "accepted connection {:?}", addr);
         set.spawn(forward_traffic(
             count,
             token.clone(),
@@ -158,11 +158,12 @@ async fn forward_traffic(
             _ = token.cancelled() => break,
         };
     }
-    debug!("closing connection {id}");
-    let (shutdown_from, shutdown_to) =
-        tokio::join!(from_stream.shutdown(), to_stream.shutdown());
-    shutdown_to.map_err(|e| error!("to {e:?}")).ok();
-    shutdown_from.map_err(|e| error!("from {e:?}")).ok();
+    debug!(id = id, "closing connection");
+    let (shutdown_from, shutdown_to) = tokio::join!(from_stream.shutdown(), to_stream.shutdown());
+    shutdown_to.map_err(|e| error!(id = id, "to {e:?}")).ok();
+    shutdown_from
+        .map_err(|e| error!(id = id, "from {e:?}"))
+        .ok();
 }
 
 #[tokio::main]
