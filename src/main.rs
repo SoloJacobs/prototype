@@ -197,9 +197,14 @@ async fn forward_traffic(
 #[tokio::main]
 async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path) {
     let stdout_layer = fmt::Layer::default().compact().with_filter(stdout_filter);
+    if output.exists() {
+        panic!(
+            "user error, output file exists: {}",
+            output.to_string_lossy()
+        )
+    }
     let file = fs::File::create(output).unwrap();
-    // TODO: make this non-blocking, and either make it appending, or throw an error if the file
-    // exists.
+
     let json_layer = fmt::Layer::default()
         .json()
         .with_writer(file)
