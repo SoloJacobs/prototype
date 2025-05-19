@@ -37,6 +37,10 @@ enum Command {
         #[clap(long, short)]
         socket: PathBuf,
     },
+    Decipher {
+        #[clap(long, short)]
+        input: PathBuf,
+    },
 }
 
 struct Rename {
@@ -194,6 +198,8 @@ async fn forward_traffic(
 async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path) {
     let stdout_layer = fmt::Layer::default().compact().with_filter(stdout_filter);
     let file = fs::File::create(output).unwrap();
+    // TODO: make this non-blocking, and either make it appending, or throw an error if the file
+    // exists.
     let json_layer = fmt::Layer::default()
         .json()
         .with_writer(file)
@@ -238,6 +244,36 @@ async fn replay_main(stdout_filter: EnvFilter, input: &Path, socket: &Path) {
     }
 }
 
+fn from_ascii(message: &[u8]) -> Option<&str> {
+    if message.iter().all(u8::is_ascii) {
+        return std::str::from_utf8(message).ok();
+    }
+    None
+}
+
+#[tokio::main]
+async fn decipher_main(stdout_filter: EnvFilter, input: &Path) {
+    let stdout_layer = fmt::Layer::default().compact().with_filter(stdout_filter);
+    tracing_subscriber::registry().with(stdout_layer).init();
+    let file = fs::File::open(input).unwrap();
+    for (line, _line_count) in BufReader::new(file).lines().zip(0..) {
+        let log: Log = from_str(&line.unwrap()).unwrap();
+        let bytes = BASE64_STANDARD.decode(&log.fields.message).unwrap();
+        let prompt = match log.fields.type_ {
+            Type_::Send => ">>",
+            Type_::Recv => "<<",
+        };
+        println!("{prompt} connection {}", log.fields.id);
+        for message in bytes.split(|&b| b == b'\n') {
+            match from_ascii(message) {
+                Some("") => continue,
+                Some(m) => println!("{m}"),
+                None => println!("non-ascii message of length {}", message.len()),
+            };
+        }
+    }
+}
+
 fn main() {
     let arguments = Arguments::parse();
     let filter = EnvFilter::new(match arguments.verbose {
@@ -248,5 +284,6 @@ fn main() {
     match arguments.command {
         Command::Record { output, socket } => record_main(filter, &output, &socket),
         Command::Replay { input, socket } => replay_main(filter, &input, &socket),
+        Command::Decipher { input } => decipher_main(filter, &input),
     };
 }
