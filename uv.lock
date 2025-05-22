@@ -123,6 +123,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "psutil" },
+    { name = "rrdtool" },
 ]
 
 [package.dev-dependencies]
@@ -137,7 +138,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "psutil", specifier = ">=7.0.0" }]
+requires-dist = [
+    { name = "psutil", specifier = ">=7.0.0" },
+    { name = "rrdtool", specifier = ">=0.1.16" },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -220,6 +224,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/cc/0f/3d63c5f37edca529a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/e7/28010a326ef591e1409daf9d57a47de94156c147ad1befe74d8196d82729/python_lsp_server-1.12.2-py3-none-any.whl", hash = "sha256:750116459449184ba20811167cdf96f91296ae12f1f65ebd975c5c159388111b", size = 74773 },
 ]
+
+[[package]]
+name = "rrdtool"
+version = "0.1.16"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/33/eab59a6f9b8fcc7f3edd4cde467abad49c3683dfa628dd7abd62763647ef/rrdtool-0.1.16.tar.gz", hash = "sha256:5f0aff8b3e0a0f701652fa88bf605a54be9e6b25fba52a13b67c71f7b35a1451", size = 22088 }
 
 [[package]]
 name = "ruff"
