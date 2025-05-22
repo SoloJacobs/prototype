@@ -6,6 +6,7 @@ use std::fs;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::signal::unix::{SignalKind, signal};
@@ -30,6 +31,8 @@ enum Command {
         output: PathBuf,
         #[clap(long, short)]
         socket: PathBuf,
+        #[clap(long, short)]
+        pidfile: PathBuf,
     },
     Replay {
         #[clap(long, short)]
@@ -195,8 +198,10 @@ async fn forward_traffic(
 }
 
 #[tokio::main]
-async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path) {
+async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path, pidfile: &Path) {
     let stdout_layer = fmt::Layer::default().compact().with_filter(stdout_filter);
+    let pid = process::id().to_string();
+    fs::write(pidfile, pid).unwrap();
     if output.exists() {
         panic!(
             "user error, output file exists: {}",
@@ -225,10 +230,7 @@ async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path) {
 fn xchange_timestamp_update(message: &str) -> String {
     let mut result = message.to_string();
     if result.starts_with("UPDATE") {
-        result = result.replace(
-            "/opt/omd/sites/ll/var/check_mk/rrd",
-            "/tmp/rrd",
-        );
+        result = result.replace("/opt/omd/sites/ll/var/check_mk/rrd", "/tmp/rrd");
         result = result.replace("rrd 174", "rrd 205");
     }
     result
@@ -313,7 +315,11 @@ fn main() {
         _ => "trace",
     });
     match arguments.command {
-        Command::Record { output, socket } => record_main(filter, &output, &socket),
+        Command::Record {
+            output,
+            socket,
+            pidfile,
+        } => record_main(filter, &output, &socket, &pidfile),
         Command::Replay { input, socket } => replay_main(filter, &input, &socket),
         Command::Decipher { input } => decipher_main(filter, &input),
     };
