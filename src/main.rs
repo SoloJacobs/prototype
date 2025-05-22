@@ -202,13 +202,11 @@ async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path, pid
     let stdout_layer = fmt::Layer::default().compact().with_filter(stdout_filter);
     let pid = process::id().to_string();
     fs::write(pidfile, pid).unwrap();
-    if output.exists() {
-        panic!(
-            "user error, output file exists: {}",
-            output.to_string_lossy()
-        )
-    }
-    let file = fs::File::create(output).unwrap();
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(output)
+        .unwrap();
 
     let json_layer = fmt::Layer::default()
         .json()
