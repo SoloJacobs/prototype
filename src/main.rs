@@ -222,6 +222,18 @@ async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path) {
     drop(rename)
 }
 
+fn xchange_timestamp_update(message: &str) -> String {
+    let mut result = message.to_string();
+    if result.starts_with("UPDATE") {
+        result = result.replace(
+            "/opt/omd/sites/ll/var/check_mk/rrd",
+            "/tmp/rrd",
+        );
+        result = result.replace("rrd 174", "rrd 205");
+    }
+    result
+}
+
 #[tokio::main]
 async fn replay_main(stdout_filter: EnvFilter, input: &Path, socket: &Path) {
     let stdout_layer = fmt::Layer::default().compact().with_filter(stdout_filter);
@@ -230,6 +242,7 @@ async fn replay_main(stdout_filter: EnvFilter, input: &Path, socket: &Path) {
     let mut stream = UnixStream::connect(socket).await.unwrap();
     info!("connected to {}", &socket.to_string_lossy());
     let mut buf = [0u8; 1024];
+    let mut commands = String::new();
     for (line, line_count) in BufReader::new(file).lines().zip(0..) {
         let log: Log = from_str(&line.unwrap()).unwrap();
         debug!(
@@ -240,10 +253,23 @@ async fn replay_main(stdout_filter: EnvFilter, input: &Path, socket: &Path) {
         match log.fields.type_ {
             Type_::Send => {
                 let bytes = BASE64_STANDARD.decode(&log.fields.message).unwrap();
-                stream.write_all(&bytes).await.unwrap();
+                commands += from_ascii(&bytes).unwrap();
+                let commands_clone = commands.clone();
+                let rrd_commands: Vec<&str> = commands_clone.split('\n').collect();
+                commands = rrd_commands.last().unwrap().to_string();
+
+                for &rrd_command in rrd_commands.iter() {
+                    let mut modified = xchange_timestamp_update(rrd_command);
+                    if modified.is_empty() {
+                        continue;
+                    }
+                    modified.push('\n');
+                    info!("sent: '{modified}'");
+                    stream.write_all(modified.as_bytes()).await.unwrap();
+                }
             }
             Type_::Recv => {
-                stream.read(&mut buf).await.unwrap();
+                let _ = stream.read(&mut buf).await;
             }
         };
     }
