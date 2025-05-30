@@ -241,7 +241,7 @@ async fn replay_main(stdout_filter: EnvFilter, input: &Path, socket: &Path) {
     let file = fs::File::open(input).unwrap();
     let mut stream = UnixStream::connect(socket).await.unwrap();
     info!("connected to {}", &socket.to_string_lossy());
-    let mut buf = [0u8; 1024];
+    let mut buf = [0u8; 65536];
     let mut commands = String::new();
     for (line, line_count) in BufReader::new(file).lines().zip(0..) {
         let log: Log = from_str(&line.unwrap()).unwrap();
@@ -264,13 +264,12 @@ async fn replay_main(stdout_filter: EnvFilter, input: &Path, socket: &Path) {
                         continue;
                     }
                     modified.push('\n');
-                    info!("sent: '{modified}'");
+                    debug!("sent: '{modified}'");
                     stream.write_all(modified.as_bytes()).await.unwrap();
+                    let _ = stream.read(&mut buf).await;
                 }
             }
-            Type_::Recv => {
-                let _ = stream.read(&mut buf).await;
-            }
+            Type_::Recv => {}
         };
     }
 }
