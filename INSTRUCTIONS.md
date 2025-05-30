@@ -41,3 +41,4 @@ socat UNIX-LISTEN:tmp/run/rrdcached.socket,fork exec:'cat >/dev/null'
 
 Warning signs:
 If the graphs are `Loading graphs...` and waiting, then there is likely something wrong with forwarding the traffic.
+5. Lookout for unattended updates.
