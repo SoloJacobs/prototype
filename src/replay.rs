@@ -8,6 +8,8 @@ use std::fs;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
 use tracing::{debug, error, info, trace};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -94,7 +96,7 @@ fn parse(message: &str) -> anyhow::Result<UpdateMessage> {
     });
 }
 
-async fn decipher(stdout_filter: EnvFilter, input: &Path) -> Vec<UpdateMessage> {
+async fn decipher(stdout_filter: EnvFilter, input: &Path, tx: Sender<UpdateMessage>) {
     let stdout_layer = fmt::Layer::default()
         .compact()
         .with_writer(std::io::stderr)
@@ -102,7 +104,6 @@ async fn decipher(stdout_filter: EnvFilter, input: &Path) -> Vec<UpdateMessage> 
     tracing_subscriber::registry().with(stdout_layer).init();
     let file = fs::File::open(input).unwrap();
     let mut update_count = 0;
-    let mut updates: Vec<UpdateMessage> = Vec::new();
     for (line, _line_count) in BufReader::new(file).lines().zip(0..) {
         let log: Log = from_str(&line.unwrap()).unwrap();
         let bytes = BASE64_STANDARD.decode(&log.fields.message).unwrap();
@@ -118,7 +119,7 @@ async fn decipher(stdout_filter: EnvFilter, input: &Path) -> Vec<UpdateMessage> 
                     trace!("{m}");
                     if m.starts_with("UPDATE") {
                         match parse(m) {
-                            Ok(update) => updates.push(update),
+                            Ok(update) => tx.send(update).await.unwrap(),
                             Err(e) => {
                                 error!("Could not parse: {m}, {e}")
                             }
@@ -131,24 +132,30 @@ async fn decipher(stdout_filter: EnvFilter, input: &Path) -> Vec<UpdateMessage> 
         }
     }
     info!("update_count: {update_count}");
-    return updates;
 }
 
-async fn create_metric(metric: RRDMetric) -> Result<(), sqlx::Error> {
-    let conn_string = "postgres://postgres:password@localhost/postgres";
-    let mut conn = PgConnection::connect(conn_string).await?;
-    let time = DateTime::<Utc>::from_timestamp(metric.time, 0).expect("Invalid UNIX timestamp");
-    let query = sqlx::query(
+async fn create_metric(conn: &mut PgConnection, update: UpdateMessage) -> Result<(), sqlx::Error> {
+    let time = DateTime::<Utc>::from_timestamp(update.time, 0).expect("Invalid UNIX timestamp");
+    let values = update
+        .metrics
+        .into_iter()
+        .zip(0..)
+        .map(|(metric, i)| match metric {
+            Some(value) => format!("($1, $2, {i}, {value})"),
+            None => format!("($1, $2, {i}, NULL)"),
+        })
+        .collect::<Vec<String>>()
+        .join(",");
+    let query_str = format!(
         "
         INSERT INTO metrics (time, path, name, value)
-          VALUES ($1, $2, $3, $4)
-        ",
-    )
-    .bind(time)
-    .bind(&metric.path)
-    .bind(&metric.name)
-    .bind(metric.value);
-    trace!("{:#?}", conn.execute(query).await?);
+          VALUES {values}
+        "
+    );
+
+    let query = sqlx::query(&query_str).bind(time).bind(&update.path);
+    let result = conn.execute(query).await?;
+    trace!("{:#?}", result);
     Ok(())
 }
 
@@ -173,7 +180,8 @@ async fn create_table() -> Result<(), sqlx::Error> {
     );
     let conn_string = "postgres://postgres:password@localhost/postgres";
     let mut conn = PgConnection::connect(conn_string).await?;
-    println!("{:#?}", conn.execute(query).await?);
+    let result = conn.execute(query).await?;
+    trace!("{:#?}", result);
     Ok(())
 }
 
@@ -185,20 +193,28 @@ async fn main() -> Result<(), sqlx::Error> {
         1 => "debug",
         _ => "trace",
     });
-    let updates = match arguments.command {
-        Command::Decipher { input } => decipher(filter, &input).await,
-    };
-    // create_table().await?;
-    for update in updates {
-        for (metric, i) in update.metrics.into_iter().zip(1..) {
-            let rrd_metric = RRDMetric{
-                time: update.time,
-                path: update.path.clone(),
-                name: format!("{i}"),
-                value: metric,
-            };
-            create_metric(rrd_metric).await?;
+    let (tx, mut rx) = mpsc::channel::<UpdateMessage>(32);
+
+    let Command::Decipher { input } = arguments.command;
+    let sender = tokio::spawn(async move { decipher(filter, &input, tx).await });
+    create_table().await?;
+    let consumer = tokio::spawn(async move {
+        let mut count = 0;
+        let conn_string = "postgres://postgres:password@localhost/postgres";
+        let mut conn = PgConnection::connect(conn_string).await.unwrap();
+        while let Some(update) = rx.recv().await {
+            count += 1;
+            if let Err(e) = create_metric(&mut conn, update).await {
+                error!("could not create metric {e:?}");
+            }
+            if count % 100000 == 0 {
+                info!("processed {count}");
+            }
         }
-    }
+        info!("finished processing");
+    });
+    let (cons, send) = tokio::join!(consumer, sender);
+    cons.unwrap();
+    send.unwrap();
     Ok(())
 }
