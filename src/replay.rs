@@ -134,7 +134,7 @@ async fn decipher(input: &Path, tx: Sender<UpdateMessage>) {
 }
 
 async fn create_metric(
-    metrics: &HashMap<(String, i32), i32>,
+    metrics: &HashMap<String, i32>,
     conn: &mut PgConnection,
     update: UpdateMessage,
 ) -> Result<(), sqlx::Error> {
@@ -143,23 +143,21 @@ async fn create_metric(
         .metrics
         .into_iter()
         .zip(0..)
-        .map(|(metric, i)| {
-            let id = metrics[&(update.path.clone(), i)];
-            match metric {
-                Some(value) => format!("({id}, $1, {value})"),
-                None => format!("({id}, $1, NULL)"),
-            }
+        .map(|(metric, i)| match metric {
+            Some(value) => format!("($1, {i}, $2, {value})"),
+            None => format!("($1, '{i}', $2, NULL)"),
         })
         .collect::<Vec<String>>()
         .join(",");
+    let id = metrics[&update.path];
     let query_str = format!(
         "
-        INSERT INTO metrics (partition, time, value)
+        INSERT INTO metrics (partition, name, time, value)
           VALUES {values}
         "
     );
 
-    let query = sqlx::query(&query_str).bind(time);
+    let query = sqlx::query(&query_str).bind(id).bind(time);
     let result = conn.execute(query).await?;
     trace!("{:#?}", result);
     Ok(())
@@ -173,9 +171,10 @@ async fn create_table() -> Result<(), sqlx::Error> {
         "
     CREATE TABLE metrics (
       partition BIGINT            NOT NULL,
+      name      BIGINT            NOT NULL,
       time      TIMESTAMPTZ       NOT NULL,
       value     DOUBLE PRECISION,
-      PRIMARY KEY (partition, time)
+      PRIMARY KEY (partition, name, time)
     ) PARTITION BY LIST(partition);
     ",
     );
@@ -188,27 +187,33 @@ async fn create_table() -> Result<(), sqlx::Error> {
 
 async fn create_partitions(
     mut rx: Receiver<UpdateMessage>,
-) -> Result<HashMap<(String, i32), i32>, sqlx::Error> {
+) -> Result<HashMap<String, i32>, sqlx::Error> {
     let conn_string = "postgres://postgres:password@localhost/postgres";
     let mut conn = PgConnection::connect(conn_string).await.unwrap();
     let mut seen_metrics = HashMap::new();
     let mut unique_id = 0;
 
-    while let Some(update) = rx.recv().await {
-        for (_metric, id) in update.metrics.iter().zip(0..) {
-            seen_metrics
-                .entry((update.path.clone(), id))
-                .or_insert(unique_id);
+    while let Some(UpdateMessage {
+        time,
+        path,
+        metrics,
+    }) = rx.recv().await
+    {
+        if !seen_metrics.contains_key(&path) {
+            seen_metrics.insert(path, unique_id);
             let query_str = format!(
                 "
-            CREATE TABLE metrics_{unique_id} PARTITION of metrics
-              FOR VALUES IN ({unique_id});
-            "
+                CREATE TABLE metrics_{unique_id} PARTITION of metrics
+                  FOR VALUES IN ({unique_id});
+                "
             );
             let query = sqlx::query(&query_str);
             let result = conn.execute(query).await?;
             trace!("{:#?}", result);
             unique_id += 1;
+            if unique_id % 10 == 0 {
+                info!("partition count: {unique_id}");
+            }
         }
     }
     // We really want to save this instead
@@ -217,12 +222,10 @@ async fn create_partitions(
     Ok(seen_metrics)
 }
 
-async fn create_metrics(metrics: &HashMap<(String, i32), i32>, mut rx: Receiver<UpdateMessage>) {
-    let mut count = 0;
+async fn create_metrics(metrics: &HashMap<String, i32>, mut rx: Receiver<UpdateMessage>) {
     let conn_string = "postgres://postgres:password@localhost/postgres";
     let mut conn = PgConnection::connect(conn_string).await.unwrap();
     while let Some(update) = rx.recv().await {
-        count += 1;
         if let Err(e) = create_metric(&metrics, &mut conn, update).await {
             error!("could not create metric {e:?}");
         }
@@ -232,7 +235,7 @@ async fn create_metrics(metrics: &HashMap<(String, i32), i32>, mut rx: Receiver<
 
 async fn create_metrics_from_file(
     input: &Path,
-    metrics: &HashMap<(String, i32), i32>,
+    metrics: &HashMap<String, i32>,
 ) -> Result<(), sqlx::Error> {
     let (tx, rx) = mpsc::channel::<UpdateMessage>(32);
     let (_send, _cons) = tokio::join!(decipher(&input, tx), create_metrics(metrics, rx),);
