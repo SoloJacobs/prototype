@@ -175,7 +175,11 @@ async fn create_table() -> Result<(), sqlx::Error> {
       time      TIMESTAMPTZ       NOT NULL,
       value     DOUBLE PRECISION,
       PRIMARY KEY (partition, name, time)
-    ) PARTITION BY LIST(partition);
+    ) WITH (
+      timescaledb.hypertable,
+      timescaledb.partition_column='time',
+      timescaledb.segmentby='partition'
+    );
     ",
     );
     let conn_string = "postgres://postgres:password@localhost/postgres";
@@ -188,8 +192,6 @@ async fn create_table() -> Result<(), sqlx::Error> {
 async fn create_partitions(
     mut rx: Receiver<UpdateMessage>,
 ) -> Result<HashMap<String, i32>, sqlx::Error> {
-    let conn_string = "postgres://postgres:password@localhost/postgres";
-    let mut conn = PgConnection::connect(conn_string).await.unwrap();
     let mut seen_metrics = HashMap::new();
     let mut unique_id = 0;
 
@@ -201,19 +203,7 @@ async fn create_partitions(
     {
         if !seen_metrics.contains_key(&path) {
             seen_metrics.insert(path, unique_id);
-            let query_str = format!(
-                "
-                CREATE TABLE metrics_{unique_id} PARTITION of metrics
-                  FOR VALUES IN ({unique_id});
-                "
-            );
-            let query = sqlx::query(&query_str);
-            let result = conn.execute(query).await?;
-            trace!("{:#?}", result);
             unique_id += 1;
-            if unique_id % 10 == 0 {
-                info!("partition count: {unique_id}");
-            }
         }
     }
     // We really want to save this instead
