@@ -228,7 +228,7 @@ async fn record_main(stdout_filter: EnvFilter, output: &Path, socket: &Path, pid
 fn xchange_timestamp_update(message: &str) -> String {
     let mut result = message.to_string();
     if result.starts_with("UPDATE") {
-        result = result.replace("/opt/omd/sites/ll/var/check_mk/rrd", "/tmp/rrd");
+        result = result.replace("/opt/omd/sites/prod/var/check_mk/rrd", "/tmp/rrd");
         result = result.replace("rrd 174", "rrd 205");
     }
     result
@@ -271,6 +271,9 @@ async fn replay_main(stdout_filter: EnvFilter, input: &Path, socket: &Path) {
             }
             Type_::Recv => {}
         };
+        if line_count % 100000 == 0{
+            info!("processed {line_count}");
+        }
     }
 }
 
