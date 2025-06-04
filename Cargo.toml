@@ -23,3 +23,7 @@ path = "src/main.rs"
 [[bin]]
 name = "replay"
 path = "src/replay.rs"
+
+[[bin]]
+name = "replay_rrd"
+path = "src/replay_rrd.rs"

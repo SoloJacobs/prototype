@@ -1,8 +1,10 @@
+import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import rrdtool 
+import rrdtool
 
 
 @dataclass(frozen=True)
@@ -76,15 +78,54 @@ def _create_rrd(info: RRDInfo) -> str:
     return rrd_file_name
 
 
+@dataclass(frozen=True, slots=True)
+class TS:
+    path: Path
+    metric_count: int
+
+
+def _create_rrd_from_ts(ts: TS) -> str:
+    heartbeat = 8460
+    step = 60
+
+    rrd_file = Path(
+        str(ts.path).replace("/opt/omd/sites/prod/var/check_mk/rrd/", "/tmp/rrd/")
+    )
+    os.makedirs(rrd_file.parent, exist_ok=True)
+    args = [str(rrd_file), "--step", str(step)]
+    for nr in range(1, ts.metric_count + 1):
+        args.append(f"DS:{nr}:GAUGE:{heartbeat}:U:U")
+    args += [
+        "RRA:AVERAGE:0.50:1:2880",
+        "RRA:AVERAGE:0.50:30:4320",
+        "RRA:AVERAGE:0.50:360:5840",
+        "RRA:AVERAGE:0.50:5:2880",
+        "RRA:MAX:0.50:1:2880",
+        "RRA:MAX:0.50:30:4320",
+        "RRA:MAX:0.50:360:5840",
+        "RRA:MAX:0.50:5:2880",
+        "RRA:MIN:0.50:1:2880",
+        "RRA:MIN:0.50:30:4320",
+        "RRA:MIN:0.50:360:5840",
+        "RRA:MIN:0.50:5:2880",
+    ]
+
+    rrdtool.create(*args)
+
+    return str(rrd_file)
+
+
 def main() -> None:
-    rrd = "/home/solo/git/prototype/rrd/"
-    for host in os.listdir(rrd):
-        host_dir = f"rrd/{host}"
-        for rrd in os.listdir(host_dir):
-            if rrd.endswith(".info"):
-                rrd_file = f"{host_dir}/{rrd}"
-                info = _parse_cmc_rrd_info(rrd_file)
-                _create_rrd(info)
+    rrd = "/tmp/metrics"
+    tss = []
+    with open(rrd) as file:
+        for line in file:
+            ts_dict = json.loads(line)
+            tss.append(TS(path=ts_dict["path"], metric_count=ts_dict["metric_count"]))
+    print(time.time())
+    for ts in tss:
+        _create_rrd_from_ts(ts)
+    print(time.time())
 
 
 main()
