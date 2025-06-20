@@ -133,36 +133,6 @@ async fn decipher(input: &Path, tx: Sender<UpdateMessage>) {
     info!("update_count: {update_count}");
 }
 
-async fn create_metric(
-    metrics: &HashMap<String, i32>,
-    conn: &mut PgConnection,
-    update: UpdateMessage,
-) -> Result<(), sqlx::Error> {
-    let time = DateTime::<Utc>::from_timestamp(update.time, 0).expect("Invalid UNIX timestamp");
-    let values = update
-        .metrics
-        .into_iter()
-        .zip(0..)
-        .map(|(metric, i)| match metric {
-            Some(value) => format!("($1, {i}, $2, {value})"),
-            None => format!("($1, '{i}', $2, NULL)"),
-        })
-        .collect::<Vec<String>>()
-        .join(",");
-    let id = metrics[&update.path];
-    let query_str = format!(
-        "
-        INSERT INTO metrics (partition, name, time, value)
-          VALUES {values}
-        "
-    );
-
-    let query = sqlx::query(&query_str).bind(id).bind(time);
-    let result = conn.execute(query).await?;
-    trace!("{:#?}", result);
-    Ok(())
-}
-
 async fn create_table() -> Result<(), sqlx::Error> {
     // We really want to save this instead
     //  host     TEXT              NOT NULL,
@@ -215,11 +185,30 @@ async fn create_partitions(
 async fn create_metrics(metrics: &HashMap<String, i32>, mut rx: Receiver<UpdateMessage>) {
     let conn_string = "postgres://postgres:password@localhost/postgres";
     let mut conn = PgConnection::connect(conn_string).await.unwrap();
+    let mut values: Vec<String> = Vec::new();
     while let Some(update) = rx.recv().await {
-        if let Err(e) = create_metric(&metrics, &mut conn, update).await {
-            error!("could not create metric {e:?}");
-        }
+        let time = DateTime::<Utc>::from_timestamp(update.time, 0).expect("Invalid UNIX timestamp");
+        let id = metrics[&update.path];
+        values.extend(
+            update
+                .metrics
+                .into_iter()
+                .zip(0..)
+                .map(|(metric, i)| match metric {
+                    Some(value) => format!("({id}, {i}, '{time}', {value})"),
+                    None => format!("({id}, '{i}', '{time}', NULL)"),
+                })
+                .collect::<Vec<String>>(),
+        );
+        let id = metrics[&update.path];
     }
+    let query_str = format!(
+        "
+        INSERT INTO metrics (partition, name, time, value)
+          VALUES {}
+        ", values.join(",")
+    );
+    conn.execute(sqlx::query(&query_str)).await.unwrap();
     info!("finished processing");
 }
 
