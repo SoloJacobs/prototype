@@ -5,6 +5,7 @@ description = "The not so mergeable."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "matplotlib>=3.10.3",
     "psutil>=7.0.0",
     "rrdtool>=0.1.16",
 ]
